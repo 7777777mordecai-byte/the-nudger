@@ -14,14 +14,9 @@ jobs:
       - name: Unzip project files
         run: |
           unzip the-nudger.zip -d temp_folder
-          if [ -d "temp_folder/the-nudger" ]; then
-            mv temp_folder/the-nudger/* .
-            mv temp_folder/the-nudger/.* . 2>/dev/null || true
-          else
-            mv temp_folder/* .
-            mv temp_folder/.* . 2>/dev/null || true
-          fi
-          rm -rf temp_folder the-nudger.zip
+          # Pull everything out of the nested folder into the root
+          cp -r temp_folder/the-nudger/* . 2>/dev/null || cp -r temp_folder/* . 2>/dev/null || true
+          rm -rf temp_folder
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
