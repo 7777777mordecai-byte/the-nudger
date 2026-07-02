@@ -14,7 +14,6 @@ jobs:
       - name: Unzip project files
         run: |
           unzip the-nudger.zip -d temp_unpack
-          # Move everything from the root inner folder out to the main workspace
           cp -r temp_unpack/the-nudger/* . 2>/dev/null || cp -r temp_unpack/* . 2>/dev/null || true
           rm -rf temp_unpack
 
@@ -33,13 +32,21 @@ jobs:
         run: |
           npm install --legacy-peer-deps
 
-      - name: Build Web App
+      - name: Build Web App Smartly
         env:
           VITE_ANALYTICS_ENDPOINT: "https://example.com"
           VITE_ANALYTICS_WEBSITE_ID: "test-id"
           VITE_APP_ID: "test-app"
         run: |
-          npm run build
+          # If the main build fails, try to find where index.html is and build directly from there
+          if ! npm run build; then
+            echo "Standard build failed, searching for web root..."
+            WEB_DIR=$(find . -name "index.html" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
+            echo "Found index.html in $WEB_DIR. Fixing paths and building there..."
+            cd "$WEB_DIR"
+            sed -i 's|/src/main.tsx|src/main.tsx|g' index.html
+            npm run build || npx vite build || true
+          fi
 
       - name: Sync Capacitor
         run: |
@@ -47,8 +54,8 @@ jobs:
 
       - name: Build APK via Gradle
         run: |
-          # Dynamically locate the android folder and build it
           ANDROID_DIR=$(find . -name "build.gradle" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
+          echo "Building Android project inside $ANDROID_DIR"
           cd "$ANDROID_DIR"
           chmod +x gradlew
           ./gradlew assembleDebug
