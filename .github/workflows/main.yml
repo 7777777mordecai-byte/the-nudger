@@ -17,8 +17,11 @@ jobs:
           cp -r temp_folder/the-nudger/* . 2>/dev/null || cp -r temp_folder/* . 2>/dev/null || true
           rm -rf temp_folder
 
-      - name: Fix Vite Path Inside HTML
-        run: sed -i 's/\/src\/main.tsx/src\/main.tsx/g' client/index.html
+      - name: Fix Vite Paths and Fallbacks
+        run: |
+          # Find index.html wherever it is and fix the main.tsx pathing
+          find . -name "index.html" -exec sed -i 's/\/src\/main.tsx/src\/main.tsx/g' {} +
+          find . -name "index.html" -exec sed -i 's/href="\/src/href="src/g' {} +
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -36,6 +39,10 @@ jobs:
           npm install --legacy-peer-deps
 
       - name: Build Web App
+        env:
+          VITE_ANALYTICS_ENDPOINT: "https://example.com"
+          VITE_ANALYTICS_WEBSITE_ID: "test-id"
+          VITE_APP_ID: "test-app"
         run: |
           npm run build 
 
