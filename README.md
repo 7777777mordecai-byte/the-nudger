@@ -31,3 +31,4 @@ Clone or download the repository, then navigate into the project directory and i
 ```bash
 npm install --legacy-peer-deps
  
+ 
