@@ -30,5 +30,5 @@ With a beautiful interface, seamless state management, and pre-configured integr
 Clone or download the repository, then navigate into the project directory and install the necessary dependencies:
 ```bash
 npm install --legacy-peer-deps
-  
+   
  
