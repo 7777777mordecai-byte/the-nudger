@@ -34,15 +34,9 @@ jobs:
 
       - name: Locate and Fix Index HTML
         run: |
-          # Find the exact folder containing index.html
           TARGET_DIR=$(find . -name "index.html" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
-          echo "Target web directory found at: $TARGET_DIR"
-          
-          # Force remove the absolute leading slash in index.html dynamically
           sed -i 's|src="/src/main.tsx"|src="src/main.tsx"|g' "$TARGET_DIR/index.html"
           sed -i 's|src="\/src\/main.tsx"|src="src/main.tsx"|g' "$TARGET_DIR/index.html"
-          
-          # Save the directory path for the next steps
           echo "WEB_DIR=$TARGET_DIR" >> $GITHUB_ENV
 
       - name: Build Web App
@@ -54,9 +48,15 @@ jobs:
           cd ${{ env.WEB_DIR }}
           npx vite build --base=./ || npm run build || true
 
-      - name: Sync Capacitor
+      - name: Sync and Repair Capacitor
         run: |
-          npx cap sync android || true
+          # Copy web assets to the expected location if necessary, then force sync
+          WEB_OUTPUT=$(find . -name "dist" -type d -not -path "*/node_modules/*" | head -n 1)
+          if [ -d "$WEB_OUTPUT" ] && [ ! -d "www" ]; then
+            cp -r "$WEB_OUTPUT" www
+          fi
+          npx cap static
+          npx cap sync android
 
       - name: Build APK via Gradle
         run: |
