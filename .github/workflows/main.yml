@@ -32,21 +32,14 @@ jobs:
         run: |
           npm install --legacy-peer-deps
 
-      - name: Build Web App Smartly
+      - name: Force Build with Correct Vite Root
         env:
           VITE_ANALYTICS_ENDPOINT: "https://example.com"
           VITE_ANALYTICS_WEBSITE_ID: "test-id"
           VITE_APP_ID: "test-app"
         run: |
-          # If the main build fails, try to find where index.html is and build directly from there
-          if ! npm run build; then
-            echo "Standard build failed, searching for web root..."
-            WEB_DIR=$(find . -name "index.html" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
-            echo "Found index.html in $WEB_DIR. Fixing paths and building there..."
-            cd "$WEB_DIR"
-            sed -i 's|/src/main.tsx|src/main.tsx|g' index.html
-            npm run build || npx vite build || true
-          fi
+          # Overwrite the build step to target the client folder as the absolute web root
+          npx vite build client || npx vite build apps/web || npm run build
 
       - name: Sync Capacitor
         run: |
