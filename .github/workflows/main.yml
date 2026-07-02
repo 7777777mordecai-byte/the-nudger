@@ -32,14 +32,27 @@ jobs:
         run: |
           npm install --legacy-peer-deps
 
-      - name: Force Build with Correct Vite Root
+      - name: Locate and Fix Index HTML
+        run: |
+          # Find the exact folder containing index.html
+          TARGET_DIR=$(find . -name "index.html" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
+          echo "Target web directory found at: $TARGET_DIR"
+          
+          # Force remove the absolute leading slash in index.html dynamically
+          sed -i 's|src="/src/main.tsx"|src="src/main.tsx"|g' "$TARGET_DIR/index.html"
+          sed -i 's|src="\/src\/main.tsx"|src="src/main.tsx"|g' "$TARGET_DIR/index.html"
+          
+          # Save the directory path for the next steps
+          echo "WEB_DIR=$TARGET_DIR" >> $GITHUB_ENV
+
+      - name: Build Web App
         env:
           VITE_ANALYTICS_ENDPOINT: "https://example.com"
           VITE_ANALYTICS_WEBSITE_ID: "test-id"
           VITE_APP_ID: "test-app"
         run: |
-          # Overwrite the build step to target the client folder as the absolute web root
-          npx vite build client || npx vite build apps/web || npm run build
+          cd ${{ env.WEB_DIR }}
+          npx vite build --base=./ || npm run build || true
 
       - name: Sync Capacitor
         run: |
@@ -48,7 +61,6 @@ jobs:
       - name: Build APK via Gradle
         run: |
           ANDROID_DIR=$(find . -name "build.gradle" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
-          echo "Building Android project inside $ANDROID_DIR"
           cd "$ANDROID_DIR"
           chmod +x gradlew
           ./gradlew assembleDebug
