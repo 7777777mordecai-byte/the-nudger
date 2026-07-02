@@ -1,72 +1,65 @@
-name: Build Android APK
+name: Setup Expo Cloud Config
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
 jobs:
-  build:
+  setup_expo:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Unzip project files
+      - name: Unzip and Inject Expo Config
         run: |
           unzip the-nudger.zip -d temp_unpack
-          cp -r temp_unpack/the-nudger/* . 2>/dev/null || cp -r temp_unpack/* . 2>/dev/null || true
+          # Target the inner directory where your app code lives
+          TARGET_DIR=$(find temp_unpack -name "package.json" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
+          
+          echo "Injecting app.json configuration into $TARGET_DIR"
+          
+          cat << 'EOF' > "$TARGET_DIR/app.json"
+          {
+            "expo": {
+              "name": "The Nudger",
+              "slug": "the-nudger",
+              "version": "1.0.0",
+              "orientation": "portrait",
+              "icon": "./assets/icon.png",
+              "userInterfaceStyle": "light",
+              "splash": {
+                "image": "./assets/splash.png",
+                "resizeMode": "contain",
+                "backgroundColor": "#ffffff"
+              },
+              "ios": {
+                "supportsTablet": true
+              },
+              "android": {
+                "adaptiveIcon": {
+                  "foregroundImage": "./assets/adaptive-icon.png",
+                  "backgroundColor": "#ffffff"
+                },
+                "package": "com.thenudger.app"
+              },
+              "web": {
+                "favicon": "./assets/favicon.png"
+              }
+            }
+          }
+          EOF
+          
+          # Re-zip the project back up with the new configuration included
+          cd temp_unpack
+          zip -r ../the-nudger.zip .
+          cd ..
           rm -rf temp_unpack
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Install Dependencies
+      - name: Commit Updated Zip File
         run: |
-          npm install --legacy-peer-deps
-
-      - name: Locate and Fix Index HTML
-        run: |
-          TARGET_DIR=$(find . -name "index.html" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
-          sed -i 's|src="/src/main.tsx"|src="src/main.tsx"|g' "$TARGET_DIR/index.html"
-          sed -i 's|src="\/src\/main.tsx"|src="src/main.tsx"|g' "$TARGET_DIR/index.html"
-          echo "WEB_DIR=$TARGET_DIR" >> $GITHUB_ENV
-
-      - name: Build Web App
-        env:
-          VITE_ANALYTICS_ENDPOINT: "https://example.com"
-          VITE_ANALYTICS_WEBSITE_ID: "test-id"
-          VITE_APP_ID: "test-app"
-        run: |
-          cd ${{ env.WEB_DIR }}
-          npx vite build --base=./ || npm run build || true
-
-      - name: Sync and Repair Capacitor
-        run: |
-          # Copy web assets to the expected location if necessary, then force sync
-          WEB_OUTPUT=$(find . -name "dist" -type d -not -path "*/node_modules/*" | head -n 1)
-          if [ -d "$WEB_OUTPUT" ] && [ ! -d "www" ]; then
-            cp -r "$WEB_OUTPUT" www
-          fi
-          npx cap static
-          npx cap sync android
-
-      - name: Build APK via Gradle
-        run: |
-          ANDROID_DIR=$(find . -name "build.gradle" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
-          cd "$ANDROID_DIR"
-          chmod +x gradlew
-          ./gradlew assembleDebug
-
-      - name: Upload Finished APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: the-nudger-apk
-          path: "**/build/outputs/apk/debug/app-debug.apk"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add the-nudger.zip
+          git commit -m "Configure Expo app.json inside source code"
+          git push
