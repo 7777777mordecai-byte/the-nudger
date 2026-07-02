@@ -14,11 +14,11 @@ jobs:
       - name: Unzip project files
         run: |
           unzip the-nudger.zip -d temp_folder
-          # Pull everything out of the nested folder into the root
           cp -r temp_folder/the-nudger/* . 2>/dev/null || cp -r temp_folder/* . 2>/dev/null || true
           rm -rf temp_folder
-     - name: Fix Vite Path Inside HTML
-      run: sed -i 's/\/src\/main.tsx/src\/main.tsx/g' client/index.html
+
+      - name: Fix Vite Path Inside HTML
+        run: sed -i 's/\/src\/main.tsx/src\/main.tsx/g' client/index.html
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
