@@ -1,65 +1,154 @@
-name: Setup Expo Cloud Config
+name: build-android-apk
+
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
   workflow_dispatch:
 
 jobs:
-  setup_expo:
+  build:
     runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      packages: read
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Unzip and Inject Expo Config
+      - name: Extract ZIP and setup project
         run: |
-          unzip the-nudger.zip -d temp_unpack
-          # Target the inner directory where your app code lives
-          TARGET_DIR=$(find temp_unpack -name "package.json" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
+          # Unzip the project
+          unzip -q the-nudger.zip -d temp_project
           
-          echo "Injecting app.json configuration into $TARGET_DIR"
+          # Find the actual project root (where package.json is)
+          PROJECT_ROOT=$(find temp_project -name "package.json" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
+          echo "PROJECT_ROOT=$PROJECT_ROOT" >> $GITHUB_ENV
           
-          cat << 'EOF' > "$TARGET_DIR/app.json"
-          {
-            "expo": {
-              "name": "The Nudger",
-              "slug": "the-nudger",
-              "version": "1.0.0",
-              "orientation": "portrait",
-              "icon": "./assets/icon.png",
-              "userInterfaceStyle": "light",
-              "splash": {
-                "image": "./assets/splash.png",
-                "resizeMode": "contain",
-                "backgroundColor": "#ffffff"
-              },
-              "ios": {
-                "supportsTablet": true
-              },
-              "android": {
-                "adaptiveIcon": {
-                  "foregroundImage": "./assets/adaptive-icon.png",
-                  "backgroundColor": "#ffffff"
-                },
-                "package": "com.thenudger.app"
-              },
-              "web": {
-                "favicon": "./assets/favicon.png"
-              }
-            }
-          }
-          EOF
-          
-          # Re-zip the project back up with the new configuration included
-          cd temp_unpack
-          zip -r ../the-nudger.zip .
-          cd ..
-          rm -rf temp_unpack
+          # Move project to root for easier access
+          mv "$PROJECT_ROOT"/* .
+          mv "$PROJECT_ROOT"/.[^.]* . 2>/dev/null || true
+          rm -rf temp_project
 
-      - name: Commit Updated Zip File
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build web app
+        run: pnpm build
+        env:
+          NODE_ENV: production
+          VITE_APP_ID: pk_test_c20619ef8499c9da13e05caabd5dfbbcf830140c
+          VITE_OAUTH_PORTAL_URL: https://oauth.manus.space
+          VITE_FRONTEND_FORGE_API_URL: https://api.manus.space
+          VITE_FRONTEND_FORGE_API_KEY: test-key-12345
+          VITE_PAYSTACK_PUBLIC_KEY: pk_test_c20619ef8499c9da13e05caabd5dfbbcf830140c
+          VITE_ANALYTICS_ENDPOINT: https://analytics.manus.space
+          VITE_ANALYTICS_WEBSITE_ID: nudger-analytics-id
+          VITE_APP_TITLE: The Nudger
+          VITE_APP_LOGO: https://nudgerdash-j4eojxpu.manus.space/logo.png
+
+      - name: Fix Vite Path Inside HTML
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add the-nudger.zip
-          git commit -m "Configure Expo app.json inside source code"
-          git push
+          if [ -f "dist/index.html" ]; then
+            sed -i 's|/_vite/|/dist/_vite/|g' dist/index.html
+            sed -i 's|/src/|/dist/src/|g' dist/index.html
+          fi
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-levels: 34
+          build-tools-version: 34.0.0
+          ndk-version: 26.1.10909125
+
+      - name: Verify Capacitor config
+        run: |
+          if [ ! -f "capacitor.config.ts" ]; then
+            echo "ERROR: capacitor.config.ts not found!"
+            exit 1
+          fi
+          echo "✓ Capacitor config found"
+
+      - name: Sync Capacitor
+        run: |
+          npx cap sync android --no-update
+        env:
+          CAPACITOR_SERVER_URL: https://nudgerdash-j4eojxpu.manus.space
+
+      - name: Verify Android directory
+        run: |
+          if [ ! -d "android" ]; then
+            echo "ERROR: android directory not found after cap sync!"
+            exit 1
+          fi
+          if [ ! -f "android/capacitor.settings.gradle" ]; then
+            echo "ERROR: android/capacitor.settings.gradle not found!"
+            exit 1
+          fi
+          echo "✓ Android directory structure verified"
+
+      - name: Generate signing key
+        run: |
+          keytool -genkey -v -keystore release.keystore \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias thenudger \
+            -storepass "thenudger123" \
+            -keypass "thenudger123" \
+            -dname "CN=The Nudger,O=The Nudger,L=Lagos,ST=Lagos,C=NG"
+
+      - name: Build release APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew clean assembleDebug \
+            --stacktrace \
+            -x lint
+
+      - name: Rename APK
+        run: |
+          if [ -f "android/app/build/outputs/apk/debug/app-debug.apk" ]; then
+            cp android/app/build/outputs/apk/debug/app-debug.apk The-Nudger-debug.apk
+            echo "✓ APK built successfully"
+          else
+            echo "ERROR: APK not found!"
+            exit 1
+          fi
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: the-nudger-apk
+          path: The-Nudger-debug.apk
+          retention-days: 30
+
+      - name: Build summary
+        run: |
+          echo "## ✅ Android APK Build Complete"
+          echo ""
+          echo "**APK Details:**"
+          echo "- Package: com.thenudger.app"
+          echo "- Build Type: Debug"
+          echo ""
+          echo "**Download:**"
+          echo "The APK is available in the GitHub Actions artifacts."
+          echo "Ready for testing and upload to app stores!"
