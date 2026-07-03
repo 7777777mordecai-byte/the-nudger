@@ -151,4 +151,4 @@ jobs:
           echo ""
           echo "**Download:**"
           echo "The APK is available in the GitHub Actions artifacts."
-          echo "Ready for testing and upload to app stores!"
+          echo "Ready for testing and upload to app stores!" 
