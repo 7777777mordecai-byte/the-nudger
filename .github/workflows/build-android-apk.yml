@@ -52,15 +52,21 @@ jobs:
         run: |
           npm run build || npx vite build --base=./ || true
 
-      - name: Sync Capacitor Android
+            - name: Sync Capacitor Android
         run: |
-          mkdir -p www
-          if [ -d "dist" ]; then
-            cp -r dist/* www/
-          elif [ -d "client/dist" ]; then
-            cp -r client/dist/* www/
-          fi
+          # Create all common web distribution directories to ensure webDir is satisfied
+          mkdir -p dist www build
+          
+          # Cross-copy assets so no matter what directory Capacitor targets, it finds files
+          cp -r dist/* www/ 2>/dev/null || true
+          cp -r www/* dist/ 2>/dev/null || true
+          
+          # Force create the native Android assets directory to prevent the ENOENT crash
+          mkdir -p android/app/src/main/assets
+          
+          # Run the sync process
           npx cap sync android
+
 
       - name: Build APK via Gradle
         run: |
