@@ -20,7 +20,11 @@ jobs:
       - name: Unzip project files
         run: |
           unzip the-nudger.zip -d temp_unpack
-          cp -r temp_unpack/the-nudger/* . 2>/dev/null || cp -r temp_unpack/* . 2>/dev/null || true
+          if [ -d "temp_unpack/the-nudger" ]; then
+            cp -r temp_unpack/the-nudger/* .
+          else
+            cp -r temp_unpack/* .
+          fi
           rm -rf temp_unpack
 
       - name: Set up Node.js
@@ -38,30 +42,29 @@ jobs:
         run: |
           npm install --legacy-peer-deps
 
-      - name: Locate and Fix Index HTML
+      - name: Fix Index HTML Path
         run: |
-          TARGET_DIR=$(find . -name "index.html" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
-          sed -i 's|src="/src/main.tsx"|src="src/main.tsx"|g' "$TARGET_DIR/index.html"
-          echo "WEB_DIR=$TARGET_DIR" >> $GITHUB_ENV
+          if [ -f "index.html" ]; then
+            sed -i 's|src="/src/main.tsx"|src="src/main.tsx"|g' index.html
+          fi
 
       - name: Build Web App
         run: |
-          cd ${{ env.WEB_DIR }}
           npm run build || npx vite build --base=./ || true
 
-      - name: Repair and Force Capacitor Sync
+      - name: Sync Capacitor Android
         run: |
-          WEB_OUTPUT=$(find . -name "dist" -type d -not -path "*/node_modules/*" | head -n 1)
           mkdir -p www
-          cp -r $WEB_OUTPUT/* www/ 2>/dev/null || cp -r client/dist/* www/ 2>/dev/null || true
-          CAP_DIR=$(find . -name "capacitor.config.json" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
-          cd "$CAP_DIR"
+          if [ -d "dist" ]; then
+            cp -r dist/* www/
+          elif [ -d "client/dist" ]; then
+            cp -r client/dist/* www/
+          fi
           npx cap sync android
 
       - name: Build APK via Gradle
         run: |
-          ANDROID_DIR=$(find . -name "build.gradle" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
-          cd "$ANDROID_DIR"
+          cd android
           chmod +x gradlew
           ./gradlew assembleDebug
 
@@ -69,4 +72,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: the-nudger-apk
-          path: "**/build/outputs/apk/debug/app-debug.apk"
+          path: "android/app/build/outputs/apk/debug/app-debug.apk"
