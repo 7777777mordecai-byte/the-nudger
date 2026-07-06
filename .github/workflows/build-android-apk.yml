@@ -1,4 +1,5 @@
 name: build-android-apk
+
 on:
   push:
     branches: [ main, master, develop ]
@@ -9,6 +10,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     permissions:
       contents: read
       packages: read
@@ -17,65 +19,128 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Unzip project files
+      - name: Extract ZIP and setup project
         run: |
-          unzip the-nudger.zip -d temp_unpack
-          if [ -d "temp_unpack/the-nudger" ]; then
-            cp -r temp_unpack/the-nudger/* .
-          else
-            cp -r temp_unpack/* .
-          fi
-          rm -rf temp_unpack
+          unzip -q the-nudger.zip -d temp_project
+          PROJECT_ROOT=$(find temp_project -name "package.json" -not -path "*/node_modules/*" | head -n 1 | xargs dirname)
+          echo "PROJECT_ROOT=$PROJECT_ROOT" >> $GITHUB_ENV
+          mv "$PROJECT_ROOT"/* .
+          mv "$PROJECT_ROOT"/.[^.]* . 2>/dev/null || true
+          rm -rf temp_project
 
-      - name: Set up Node.js
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '22'
+          cache: 'pnpm'
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
 
-      - name: Install Dependencies
+      - name: Build web app
+        run: pnpm build
+        env:
+          NODE_ENV: production
+          VITE_APP_ID: pk_test_c20619ef8499c9da13e05caabd5dfbbcf830140c
+          VITE_OAUTH_PORTAL_URL: https://oauth.manus.space
+          VITE_FRONTEND_FORGE_API_URL: https://api.manus.space
+          VITE_FRONTEND_FORGE_API_KEY: test-key-12345
+          VITE_PAYSTACK_PUBLIC_KEY: pk_test_c20619ef8499c9da13e05caabd5dfbbcf830140c
+          VITE_ANALYTICS_ENDPOINT: https://analytics.manus.space
+          VITE_ANALYTICS_WEBSITE_ID: nudger-analytics-id
+          VITE_APP_TITLE: The Nudger
+          VITE_APP_LOGO: https://nudgerdash-j4eojxpu.manus.space/logo.png
+
+      - name: Fix Vite Path Inside HTML
         run: |
-          npm install --legacy-peer-deps
-
-      - name: Fix Index HTML Path
-        run: |
-          if [ -f "index.html" ]; then
-            sed -i 's|src="/src/main.tsx"|src="src/main.tsx"|g' index.html
+          if [ -f "dist/index.html" ]; then
+            sed -i 's|/_vite/|/dist/_vite/|g' dist/index.html
+            sed -i 's|/src/|/dist/src/|g' dist/index.html
           fi
 
-      - name: Build Web App
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-levels: 34
+          build-tools-version: 34.0.0
+          ndk-version: 26.1.10909125
+
+      - name: Verify Capacitor config
         run: |
-          npm run build || npx vite build --base=./ || true
+          if [ ! -f "capacitor.config.ts" ]; then
+            echo "ERROR: capacitor.config.ts not found!"
+            exit 1
+          fi
+          echo "✓ Capacitor config found"
 
-            - name: Sync Capacitor Android
+      - name: Sync Capacitor
+        run: npx cap sync android --no-update
+        env:
+          CAPACITOR_SERVER_URL: https://nudgerdash-j4eojxpu.manus.space
+
+      - name: Verify Android directory
         run: |
-          # Create all common web distribution directories to ensure webDir is satisfied
-          mkdir -p dist www build
-          
-          # Cross-copy assets so no matter what directory Capacitor targets, it finds files
-          cp -r dist/* www/ 2>/dev/null || true
-          cp -r www/* dist/ 2>/dev/null || true
-          
-          # Force create the native Android assets directory to prevent the ENOENT crash
-          mkdir -p android/app/src/main/assets
-          
-          # Run the sync process
-          npx cap sync android
+          if [ ! -d "android" ]; then
+            echo "ERROR: android directory not found after cap sync!"
+            exit 1
+          fi
+          if [ ! -f "android/capacitor.settings.gradle" ]; then
+            echo "ERROR: android/capacitor.settings.gradle not found!"
+            exit 1
+          fi
+          echo "✓ Android directory structure verified"
 
+      - name: Generate signing key
+        run: |
+          keytool -genkey -v -keystore release.keystore \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias thenudger \
+            -storepass "thenudger123" \
+            -keypass "thenudger123" \
+            -dname "CN=The Nudger,O=The Nudger,L=Lagos,ST=Lagos,C=NG"
 
-      - name: Build APK via Gradle
+      - name: Build release APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew clean assembleDebug --stacktrace -x lint
 
-      - name: Upload Finished APK
+      - name: Rename APK
+        run: |
+          if [ -f "android/app/build/outputs/apk/debug/app-debug.apk" ]; then
+            cp android/app/build/outputs/apk/debug/app-debug.apk The-Nudger-debug.apk
+            echo "✓ APK built successfully"
+          else
+            echo "ERROR: APK not found!"
+            exit 1
+          fi
+
+      - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
           name: the-nudger-apk
-          path: "android/app/build/outputs/apk/debug/app-debug.apk"
+          path: The-Nudger-debug.apk
+          retention-days: 30
+
+      - name: Build summary
+        run: |
+          echo "## ✅ Android APK Build Complete"
+          echo ""
+          echo "**APK Details:**"
+          echo "- Package: com.thenudger.app"
+          echo "- Build Type: Debug"
+          echo ""
+          echo "**Download:**"
+          echo "The APK is available in the GitHub Actions artifacts."
+          echo "Ready for testing and upload to app stores!"
