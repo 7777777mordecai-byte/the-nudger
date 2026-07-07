@@ -29,7 +29,7 @@ jobs:
           rm -rf temp_project
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@v4
         with:
           version: 10
 
@@ -40,7 +40,13 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: |
+          if [ ! -f "pnpm-lock.yaml" ]; then
+            echo "pnpm-lock.yaml not found, installing without lock file"
+            pnpm install
+          else
+            pnpm install --no-frozen-lockfile
+          fi
 
       - name: Build web app
         run: pnpm build
